@@ -72,7 +72,6 @@ export function siteSortValue(site) {
 export function normalizeRows(rawRows) {
   return rawRows.flatMap((raw) => {
     const typeField = findField(raw, ["type"]);
-    if (typeField && String(raw[typeField]).toLowerCase() !== "email") return [];
 
     const dateField = findField(raw, ["发送时间", "send date", "date"]);
     const contentField = findField(raw, ["邮件内容类型", "email type", "content type"]);
@@ -97,6 +96,7 @@ export function normalizeRows(rawRows) {
       date: parts.date,
       month: parts.month,
       emailType: String(raw[contentField] || "未分类").trim() || "未分类",
+      channelType: typeField ? String(raw[typeField] || "").trim() : "",
       campaign: campaignBase(raw[sourceField]),
       sourceName: String(raw[sourceField] || ""),
       previewText: previewField ? String(raw[previewField] || "") : "",
@@ -183,6 +183,17 @@ export function summarizeMonths(rows, emailType, market = "all") {
       metrics: aggregateRows(monthRows),
     };
   });
+}
+
+export function summarizeCountries(rows, market = "all") {
+  const filtered = filterRowsByMarket(rows, market);
+  return unique(filtered.map((row) => row.site)).map((site) => {
+    const countryRows = filtered.filter((row) => row.site === site);
+    return {
+      site,
+      metrics: aggregateRows(countryRows),
+    };
+  }).sort((a, b) => siteSortValue(a.site) - siteSortValue(b.site) || String(a.site || "").localeCompare(String(b.site || "")));
 }
 
 export function summarizeCampaigns(rows, emailType, month, market = "all") {

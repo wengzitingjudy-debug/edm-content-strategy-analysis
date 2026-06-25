@@ -4,6 +4,7 @@ import {
   campaignBase,
   normalizeRows,
   summarizeContentTypes,
+  summarizeCountries,
   summarizeCampaigns,
   summarizeMonths,
   summarizeSites,
@@ -91,24 +92,28 @@ const raw = [
 assert.equal(campaignBase("[场景]: 5.28_森林婚礼拍摄_US"), "[场景]: 5.28_森林婚礼拍摄");
 
 const rows = normalizeRows(raw);
-assert.equal(rows.length, 4);
+assert.equal(rows.length, 5);
 assert.equal(rows[0].month, "2026-05");
 assert.equal(rows[0].site, "US");
 assert.equal(rows[1].site, "DE");
 assert.equal(rows[0].campaign, rows[1].campaign);
 
 const metrics = aggregateRows(rows);
-assert.equal(metrics.sent, 1800);
+assert.equal(metrics.sent, 1900);
 assert.equal(metrics.orders, 15);
 assert.equal(metrics.revenue, 2410);
 assert.equal(metrics.revenueCny, 17611);
-assert.equal(metrics.deliveryRate, 0.961111);
+assert.equal(metrics.deliveryRate, 0.910526);
 assert.equal(metrics.ctor, 0.213483);
 
 const typeRows = summarizeContentTypes(rows, "all");
-assert.equal(typeRows.length, 1);
+assert.equal(typeRows.length, 2);
 assert.equal(typeRows[0].emailType, "场景");
 assert.equal(typeRows[0].campaignCount, 1);
+
+const countryRows = summarizeCountries(rows, "all");
+assert.deepEqual(countryRows.map((row) => row.site), ["US", "EU", "DE", "Other"]);
+assert.equal(countryRows[0].metrics.sent, 1100);
 
 const months = summarizeMonths(rows, "场景", "all");
 assert.equal(months.length, 1);

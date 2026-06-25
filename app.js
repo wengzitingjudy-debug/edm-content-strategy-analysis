@@ -22,6 +22,7 @@
     overviewType: document.getElementById("overviewType"),
     overviewCards: document.getElementById("overviewCards"),
     typeTable: document.getElementById("typeTable"),
+    countryTable: document.getElementById("countryTable"),
   };
 
   function cleanHeader(value) {
@@ -99,7 +100,6 @@
   function normalizeRows(rawRows) {
     return rawRows.flatMap((raw) => {
       const typeField = findField(raw, ["type"]);
-      if (typeField && String(raw[typeField]).toLowerCase() !== "email") return [];
 
       const dateField = findField(raw, ["发送时间", "send date", "date"]);
       const contentField = findField(raw, ["邮件内容类型", "email type", "content type"]);
@@ -124,6 +124,7 @@
         date: parts.date,
         month: parts.month,
         emailType: String(raw[contentField] || "未分类").trim() || "未分类",
+        channelType: typeField ? String(raw[typeField] || "").trim() : "",
         campaign: campaignBase(raw[sourceField]),
         sourceName: String(raw[sourceField] || ""),
         previewText: previewField ? String(raw[previewField] || "") : "",
@@ -238,6 +239,17 @@
         metrics: aggregateRows(monthRows),
       };
     });
+  }
+
+  function summarizeCountries(rows, market) {
+    const filtered = filterRowsByMarket(rows, market);
+    return unique(filtered.map((row) => row.site)).map((site) => {
+      const countryRows = filtered.filter((row) => row.site === site);
+      return {
+        site,
+        metrics: aggregateRows(countryRows),
+      };
+    }).sort((a, b) => siteSortValue(a.site) - siteSortValue(b.site) || String(a.site || "").localeCompare(String(b.site || "")));
   }
 
   function summarizeCampaigns(rows, emailType, month, market) {
@@ -400,10 +412,10 @@
     state.overviewSite = "all";
     state.overviewType = "all";
     if (!state.rows.length) {
-      setStatus("没有识别到可用 Email 数据。请检查字段名是否包含发送时间、邮件内容类型、source_name、company_name。", true);
+      setStatus("没有识别到可用 Campaign 数据。请检查字段名是否包含发送时间、邮件内容类型、source_name、company_name。", true);
     } else {
       const months = unique(state.rows.map((row) => row.month)).sort();
-      setStatus(`已载入 ${sourceName}：${state.rows.length} 行 Email 数据，覆盖 ${months.join(", ")}。`);
+      setStatus(`已载入 ${sourceName}：${state.rows.length} 行 Campaign 数据，覆盖 ${months.join(", ")}。`);
     }
     render();
   }
@@ -578,6 +590,34 @@
     });
   }
 
+  function renderCountryTable() {
+    const rows = summarizeCountries(dashboardRows(), "all");
+    if (!rows.length) {
+      els.countryTable.innerHTML = `<div class="empty">${state.rows.length ? "当前筛选下没有匹配的国家数据。" : "请上传数据，或点击“载入示例数据”。"}</div>`;
+      return;
+    }
+    els.countryTable.innerHTML = `
+      <table>
+        <thead>
+          ${summaryHeaders("国家站点")}
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr class="level-site country-summary-row">
+              <td><span class="primary">${escapeHtml(row.site)}</span>${copyButton("country", "复制", { site: row.site })}</td>
+              ${summaryMetricCells(row.metrics, { exchangeRate: exchangeRateForSite(row.site) })}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>`;
+    els.countryTable.querySelectorAll("[data-copy-scope]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        handleCopy(button.dataset);
+      });
+    });
+  }
+
   function handleCopy(data) {
     const sourceRows = dashboardRows();
     if (data.copyScope === "type") {
@@ -608,6 +648,12 @@
       ]);
       copyText(toTsv(headers, rows), `「${data.campaign}」国家站点明细`);
       return;
+    }
+    if (data.copyScope === "country") {
+      const rows = summarizeCountries(sourceRows.filter((row) => row.site === data.site), "all");
+      const headers = ["国家站点", ...metricExportHeaders()];
+      const exportRows = rows.map((row) => [row.site, ...metricExportValues(row.metrics, exchangeRateForSite(row.site))]);
+      copyText(toTsv(headers, exportRows), `「${data.site}」国家汇总`);
     }
   }
 
@@ -699,6 +745,7 @@
   function render() {
     renderOverview();
     renderTypeTable();
+    renderCountryTable();
     document.querySelectorAll("[data-market]").forEach((button) => {
       button.classList.toggle("active", button.dataset.market === state.market);
     });
