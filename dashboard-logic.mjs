@@ -24,9 +24,31 @@ export function dateToParts(value) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
+  const week = weekParts(date);
   return {
     date: `${year}-${month}-${day}`,
     month: `${year}-${month}`,
+    weekKey: week.weekKey,
+    weekLabel: week.weekLabel,
+  };
+}
+
+export function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function weekParts(date) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay() || 7;
+  start.setDate(start.getDate() - day + 1);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return {
+    weekKey: formatDate(start),
+    weekLabel: `${formatDate(start)} ~ ${formatDate(end)}`,
   };
 }
 
@@ -95,6 +117,8 @@ export function normalizeRows(rawRows) {
     return [{
       date: parts.date,
       month: parts.month,
+      weekKey: parts.weekKey,
+      weekLabel: parts.weekLabel,
       emailType: String(raw[contentField] || "未分类").trim() || "未分类",
       channelType: typeField ? String(raw[typeField] || "").trim() : "",
       campaign: campaignBase(raw[sourceField]),
@@ -156,8 +180,8 @@ export function unique(values) {
   return [...new Set(values)].filter(Boolean);
 }
 
-export function campaignKey(month, campaign) {
-  return `${month}::${campaign}`;
+export function campaignKey(month, campaign, weekKey = "") {
+  return `${month}::${weekKey || "month"}::${campaign}`;
 }
 
 export function summarizeContentTypes(rows, market = "all") {
@@ -185,6 +209,19 @@ export function summarizeMonths(rows, emailType, market = "all") {
   });
 }
 
+export function summarizeWeeks(rows, emailType, month, market = "all") {
+  const filtered = filterRowsByMarket(rows.filter((row) => row.emailType === emailType && row.month === month), market);
+  return unique(filtered.map((row) => row.weekKey)).sort().map((weekKey) => {
+    const weekRows = filtered.filter((row) => row.weekKey === weekKey);
+    return {
+      weekKey,
+      weekLabel: weekRows.find((row) => row.weekLabel)?.weekLabel || weekKey,
+      campaignCount: unique(weekRows.map((row) => row.campaign)).length,
+      metrics: aggregateRows(weekRows),
+    };
+  });
+}
+
 export function summarizeCountries(rows, market = "all") {
   const filtered = filterRowsByMarket(rows, market);
   return unique(filtered.map((row) => row.site)).map((site) => {
@@ -196,8 +233,12 @@ export function summarizeCountries(rows, market = "all") {
   }).sort((a, b) => siteSortValue(a.site) - siteSortValue(b.site) || String(a.site || "").localeCompare(String(b.site || "")));
 }
 
-export function summarizeCampaigns(rows, emailType, month, market = "all") {
-  const filtered = filterRowsByMarket(rows.filter((row) => row.emailType === emailType && row.month === month), market);
+export function summarizeCampaigns(rows, emailType, month, market = "all", weekKey = "") {
+  const filtered = filterRowsByMarket(rows.filter((row) =>
+    row.emailType === emailType &&
+    row.month === month &&
+    (!weekKey || row.weekKey === weekKey)
+  ), market);
   return unique(filtered.map((row) => row.campaign)).map((campaign) => {
     const campaignRows = filtered.filter((row) => row.campaign === campaign);
     return {
@@ -210,11 +251,12 @@ export function summarizeCampaigns(rows, emailType, month, market = "all") {
   }).sort((a, b) => a.date.localeCompare(b.date) || a.campaign.localeCompare(b.campaign));
 }
 
-export function summarizeSites(rows, emailType, month, campaign, market = "all") {
+export function summarizeSites(rows, emailType, month, campaign, market = "all", weekKey = "") {
   const filtered = filterRowsByMarket(rows.filter((row) =>
     row.emailType === emailType &&
     row.month === month &&
-    row.campaign === campaign
+    row.campaign === campaign &&
+    (!weekKey || row.weekKey === weekKey)
   ), market);
   return unique(filtered.map((row) => JSON.stringify([row.site, row.audienceGroup || ""]))).map((key) => {
     const [site, audienceGroup] = JSON.parse(key);

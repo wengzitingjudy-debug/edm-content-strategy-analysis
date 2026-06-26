@@ -4,8 +4,11 @@
     market: "all",
     selectedType: null,
     selectedMonths: [],
+    selectedWeeks: [],
     selectedCampaignKeys: [],
+    periodMode: "month",
     overviewMonth: "all",
+    overviewWeek: "all",
     overviewSite: "all",
     overviewType: "all",
     workbook: null,
@@ -18,8 +21,11 @@
     loadSample: document.getElementById("loadSample"),
     status: document.getElementById("status"),
     overviewMonth: document.getElementById("overviewMonth"),
+    overviewWeekLabel: document.getElementById("overviewWeekLabel"),
+    overviewWeek: document.getElementById("overviewWeek"),
     overviewSite: document.getElementById("overviewSite"),
     overviewType: document.getElementById("overviewType"),
+    periodMode: document.getElementById("periodMode"),
     overviewCards: document.getElementById("overviewCards"),
     typeTable: document.getElementById("typeTable"),
     countryTable: document.getElementById("countryTable"),
@@ -55,7 +61,32 @@
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
-    return { date: `${year}-${month}-${day}`, month: `${year}-${month}` };
+    const week = weekParts(date);
+    return {
+      date: `${year}-${month}-${day}`,
+      month: `${year}-${month}`,
+      weekKey: week.weekKey,
+      weekLabel: week.weekLabel,
+    };
+  }
+
+  function formatDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function weekParts(date) {
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return {
+      weekKey: formatDate(start),
+      weekLabel: `${formatDate(start)} ~ ${formatDate(end)}`,
+    };
   }
 
   function campaignBase(sourceName) {
@@ -123,6 +154,8 @@
       return [{
         date: parts.date,
         month: parts.month,
+        weekKey: parts.weekKey,
+        weekLabel: parts.weekLabel,
         emailType: String(raw[contentField] || "未分类").trim() || "未分类",
         channelType: typeField ? String(raw[typeField] || "").trim() : "",
         campaign: campaignBase(raw[sourceField]),
@@ -183,8 +216,12 @@
     return [...new Set(values)].filter(Boolean);
   }
 
-  function campaignKey(month, campaign) {
-    return `${month}::${campaign}`;
+  function campaignKey(month, campaign, weekKey) {
+    return `${month}::${weekKey || "month"}::${campaign}`;
+  }
+
+  function weekRowKey(month, weekKey) {
+    return `${month}::${weekKey}`;
   }
 
   function sortedSites(rows) {
@@ -194,6 +231,7 @@
   function dashboardRows() {
     return filterRowsByMarket(state.rows, state.market).filter((row) =>
       (state.overviewMonth === "all" || row.month === state.overviewMonth) &&
+      (state.overviewWeek === "all" || row.weekKey === state.overviewWeek) &&
       (state.overviewSite === "all" || row.site === state.overviewSite) &&
       (state.overviewType === "all" || row.emailType === state.overviewType)
     );
@@ -204,15 +242,25 @@
     if (state.selectedType && !validTypes.includes(state.selectedType)) {
       state.selectedType = null;
       state.selectedMonths = [];
+      state.selectedWeeks = [];
       state.selectedCampaignKeys = [];
       return;
     }
     if (!state.selectedType) return;
     const validMonths = summarizeMonths(rows, state.selectedType, "all").map((row) => row.month);
     state.selectedMonths = state.selectedMonths.filter((month) => validMonths.includes(month));
-    const validCampaignKeys = state.selectedMonths.flatMap((month) =>
-      summarizeCampaigns(rows, state.selectedType, month, "all").map((row) => campaignKey(month, row.campaign))
+    const validWeeks = state.selectedMonths.flatMap((month) =>
+      summarizeWeeks(rows, state.selectedType, month, "all").map((row) => weekRowKey(month, row.weekKey))
     );
+    state.selectedWeeks = state.selectedWeeks.filter((key) => validWeeks.includes(key));
+    const validCampaignKeys = state.periodMode === "week"
+      ? state.selectedWeeks.flatMap((key) => {
+        const [month, weekKey] = key.split("::");
+        return summarizeCampaigns(rows, state.selectedType, month, "all", weekKey).map((row) => campaignKey(month, row.campaign, weekKey));
+      })
+      : state.selectedMonths.flatMap((month) =>
+        summarizeCampaigns(rows, state.selectedType, month, "all").map((row) => campaignKey(month, row.campaign))
+      );
     state.selectedCampaignKeys = state.selectedCampaignKeys.filter((key) => validCampaignKeys.includes(key));
   }
 
@@ -241,6 +289,19 @@
     });
   }
 
+  function summarizeWeeks(rows, emailType, month, market) {
+    const filtered = filterRowsByMarket(rows.filter((row) => row.emailType === emailType && row.month === month), market);
+    return unique(filtered.map((row) => row.weekKey)).sort().map((weekKey) => {
+      const weekRows = filtered.filter((row) => row.weekKey === weekKey);
+      return {
+        weekKey,
+        weekLabel: (weekRows.find((row) => row.weekLabel) || {}).weekLabel || weekKey,
+        campaignCount: unique(weekRows.map((row) => row.campaign)).length,
+        metrics: aggregateRows(weekRows),
+      };
+    });
+  }
+
   function summarizeCountries(rows, market) {
     const filtered = filterRowsByMarket(rows, market);
     return unique(filtered.map((row) => row.site)).map((site) => {
@@ -252,8 +313,12 @@
     }).sort((a, b) => siteSortValue(a.site) - siteSortValue(b.site) || String(a.site || "").localeCompare(String(b.site || "")));
   }
 
-  function summarizeCampaigns(rows, emailType, month, market) {
-    const filtered = filterRowsByMarket(rows.filter((row) => row.emailType === emailType && row.month === month), market);
+  function summarizeCampaigns(rows, emailType, month, market, weekKey) {
+    const filtered = filterRowsByMarket(rows.filter((row) =>
+      row.emailType === emailType &&
+      row.month === month &&
+      (!weekKey || row.weekKey === weekKey)
+    ), market);
     return unique(filtered.map((row) => row.campaign)).map((campaign) => {
       const campaignRows = filtered.filter((row) => row.campaign === campaign);
       return {
@@ -266,11 +331,12 @@
     }).sort((a, b) => a.date.localeCompare(b.date) || a.campaign.localeCompare(b.campaign));
   }
 
-  function summarizeSites(rows, emailType, month, campaign, market) {
+  function summarizeSites(rows, emailType, month, campaign, market, weekKey) {
     const filtered = filterRowsByMarket(rows.filter((row) =>
       row.emailType === emailType &&
       row.month === month &&
-      row.campaign === campaign
+      row.campaign === campaign &&
+      (!weekKey || row.weekKey === weekKey)
     ), market);
     return unique(filtered.map((row) => JSON.stringify([row.site, row.audienceGroup || ""]))).map((key) => {
       const [site, audienceGroup] = JSON.parse(key);
@@ -352,7 +418,10 @@
   }
 
   function copyButton(scope, label, attrs) {
-    const dataAttrs = Object.entries(attrs || {}).map(([key, value]) => `data-${key}="${escapeHtml(value)}"`).join(" ");
+    const dataAttrs = Object.entries(attrs || {}).map(([key, value]) => {
+      const attrName = key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+      return `data-${attrName}="${escapeHtml(value)}"`;
+    }).join(" ");
     return `<button type="button" class="copy-btn" data-copy-scope="${scope}" ${dataAttrs} title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V6a2 2 0 0 1 2-2h9"></path></svg></button>`;
   }
 
@@ -407,8 +476,10 @@
     state.rows = normalizeRows(rawRows);
     state.selectedType = null;
     state.selectedMonths = [];
+    state.selectedWeeks = [];
     state.selectedCampaignKeys = [];
     state.overviewMonth = "all";
+    state.overviewWeek = "all";
     state.overviewSite = "all";
     state.overviewType = "all";
     if (!state.rows.length) {
@@ -489,6 +560,13 @@
     `).join("");
   }
 
+  function labeledSelectOptions(items, selectedValue, allLabel) {
+    const options = [{ value: "all", label: allLabel }, ...items];
+    return options.map((option) => `
+      <option value="${escapeHtml(option.value)}" ${option.value === selectedValue ? "selected" : ""}>${escapeHtml(option.label)}</option>
+    `).join("");
+  }
+
   function renderOverview() {
     const marketRows = filterRowsByMarket(state.rows, state.market);
     const months = unique(marketRows.map((row) => row.month)).sort();
@@ -499,14 +577,31 @@
     if (!sites.includes(state.overviewSite)) state.overviewSite = "all";
     if (!types.includes(state.overviewType)) state.overviewType = "all";
 
+    const shouldShowWeek = state.periodMode === "week" && state.overviewMonth !== "all";
+    const weekRows = shouldShowWeek
+      ? unique(marketRows.filter((row) => row.month === state.overviewMonth).map((row) => row.weekKey)).sort().map((weekKey) => {
+        const row = marketRows.find((item) => item.month === state.overviewMonth && item.weekKey === weekKey);
+        return { value: weekKey, label: row ? row.weekLabel : weekKey };
+      })
+      : [];
+
+    if (!shouldShowWeek || !weekRows.some((row) => row.value === state.overviewWeek)) state.overviewWeek = "all";
+
     els.overviewMonth.innerHTML = selectOptions(months, state.overviewMonth, "全部月份");
+    if (els.overviewWeek && els.overviewWeekLabel) {
+      els.overviewWeekLabel.hidden = !shouldShowWeek;
+      els.overviewWeek.innerHTML = labeledSelectOptions(weekRows, state.overviewWeek, "全部周度");
+    }
     els.overviewSite.innerHTML = selectOptions(sites, state.overviewSite, "全部站点");
     els.overviewType.innerHTML = selectOptions(types, state.overviewType, "全部内容类型");
+    if (els.periodMode) els.periodMode.value = state.periodMode;
 
     const disabled = !marketRows.length;
     els.overviewMonth.disabled = disabled;
+    if (els.overviewWeek) els.overviewWeek.disabled = disabled || !shouldShowWeek;
     els.overviewSite.disabled = disabled;
     els.overviewType.disabled = disabled;
+    if (els.periodMode) els.periodMode.disabled = disabled;
 
     const filtered = dashboardRows();
     const metrics = aggregateRows(filtered);
@@ -550,10 +645,12 @@
         if (state.selectedType === row.dataset.type) {
           state.selectedType = null;
           state.selectedMonths = [];
+          state.selectedWeeks = [];
           state.selectedCampaignKeys = [];
         } else {
           state.selectedType = row.dataset.type;
           state.selectedMonths = [];
+          state.selectedWeeks = [];
           state.selectedCampaignKeys = [];
         }
         render();
@@ -565,9 +662,23 @@
         const month = row.dataset.month;
         if (state.selectedMonths.includes(month)) {
           state.selectedMonths = state.selectedMonths.filter((value) => value !== month);
+          state.selectedWeeks = state.selectedWeeks.filter((key) => !key.startsWith(`${month}::`));
           state.selectedCampaignKeys = state.selectedCampaignKeys.filter((key) => !key.startsWith(`${month}::`));
         } else {
           state.selectedMonths = [...state.selectedMonths, month].sort();
+        }
+        render();
+      });
+    });
+    els.typeTable.querySelectorAll("[data-week-row-key]").forEach((row) => {
+      row.addEventListener("click", (event) => {
+        if (event.target.closest("[data-copy-scope]")) return;
+        const key = row.dataset.weekRowKey;
+        if (state.selectedWeeks.includes(key)) {
+          state.selectedWeeks = state.selectedWeeks.filter((value) => value !== key);
+          state.selectedCampaignKeys = state.selectedCampaignKeys.filter((value) => !value.startsWith(`${key}::`));
+        } else {
+          state.selectedWeeks = [...state.selectedWeeks, key].sort();
         }
         render();
       });
@@ -628,14 +739,28 @@
       return;
     }
     if (data.copyScope === "month") {
+      if (state.periodMode === "week") {
+        const weeks = summarizeWeeks(sourceRows, data.type, data.month, "all");
+        const headers = ["邮件内容类型", "月份", "周度", ...metricExportHeaders()];
+        const rows = weeks.map((row) => [data.type, data.month, row.weekLabel, ...metricExportValues(row.metrics, "混合")]);
+        copyText(toTsv(headers, rows), `「${data.month}」周度汇总`);
+        return;
+      }
       const campaigns = summarizeCampaigns(sourceRows, data.type, data.month, "all");
       const headers = ["邮件内容类型", "月份", "Campaign", "发送日期", ...metricExportHeaders()];
       const rows = campaigns.map((row) => [data.type, data.month, row.campaign, row.date, ...metricExportValues(row.metrics, "混合")]);
       copyText(toTsv(headers, rows), `「${data.month}」Campaign 明细`);
       return;
     }
+    if (data.copyScope === "week") {
+      const campaigns = summarizeCampaigns(sourceRows, data.type, data.month, "all", data.week);
+      const headers = ["邮件内容类型", "月份", "周度", "Campaign", "发送日期", ...metricExportHeaders()];
+      const rows = campaigns.map((row) => [data.type, data.month, data.weekLabel || data.week, row.campaign, row.date, ...metricExportValues(row.metrics, "混合")]);
+      copyText(toTsv(headers, rows), `「${data.weekLabel || data.week}」Campaign 明细`);
+      return;
+    }
     if (data.copyScope === "campaign") {
-      const sites = summarizeSites(sourceRows, data.type, data.month, data.campaign, "all");
+      const sites = summarizeSites(sourceRows, data.type, data.month, data.campaign, "all", data.week || "");
       const headers = ["邮件内容类型", "月份", "Campaign", "国家站点", "发送用户群", ...metricExportHeaders(), "排除用户群"];
       const rows = sites.map((row) => [
         data.type,
@@ -673,17 +798,34 @@
   function renderMonthRow(emailType, row) {
     const expanded = state.selectedType === emailType && state.selectedMonths.includes(row.month);
     const sourceRows = dashboardRows();
-    const campaigns = expanded ? summarizeCampaigns(sourceRows, emailType, row.month, "all") : [];
+    const weeks = expanded && state.periodMode === "week" ? summarizeWeeks(sourceRows, emailType, row.month, "all") : [];
+    const campaigns = expanded && state.periodMode === "month" ? summarizeCampaigns(sourceRows, emailType, row.month, "all") : [];
     return `
       <tr class="clickable level-month ${expanded ? "selected" : ""}" data-month="${row.month}">
         <td><span class="indent indent-1"></span><span class="toggle">${expanded ? "▾" : "▸"}</span><span class="primary">${row.month}</span>${copyButton("month", "复制", { type: emailType, month: row.month })}</td>
         ${summaryMetricCells(row.metrics, { exchangeRate: "混合" })}
       </tr>
-      ${expanded ? renderCampaignPanel(emailType, row.month, campaigns) : ""}
+      ${expanded && state.periodMode === "week" ? weeks.map((week) => renderWeekRow(emailType, row.month, week)).join("") : ""}
+      ${expanded && state.periodMode === "month" ? renderCampaignPanel(emailType, row.month, "", campaigns) : ""}
     `;
   }
 
-  function renderCampaignPanel(emailType, month, campaigns) {
+  function renderWeekRow(emailType, month, row) {
+    const key = weekRowKey(month, row.weekKey);
+    const expanded = state.selectedType === emailType && state.selectedWeeks.includes(key);
+    const sourceRows = dashboardRows();
+    const campaigns = expanded ? summarizeCampaigns(sourceRows, emailType, month, "all", row.weekKey) : [];
+    const toggle = expanded ? "▾" : "▸";
+    return `
+      <tr class="clickable level-week ${expanded ? "selected" : ""}" data-week-row-key="${escapeHtml(key)}">
+        <td><span class="indent indent-2"></span><span class="toggle">${toggle}</span><span class="primary">${escapeHtml(row.weekLabel)}</span>${copyButton("week", "复制", { type: emailType, month, week: row.weekKey, weekLabel: row.weekLabel })}</td>
+        ${summaryMetricCells(row.metrics, { exchangeRate: "混合" })}
+      </tr>
+      ${expanded ? renderCampaignPanel(emailType, month, row.weekKey, campaigns) : ""}
+    `;
+  }
+
+  function renderCampaignPanel(emailType, month, weekKey, campaigns) {
     return `
       <tr class="nested-row">
         <td colspan="14">
@@ -691,7 +833,7 @@
             <span class="section-pill">邮件表现</span>
             <table class="nested-table campaign-table">
               <thead>${summaryHeaders("Campaign")}</thead>
-              <tbody>${campaigns.map((campaign) => renderCampaignBlock(emailType, month, campaign)).join("")}</tbody>
+              <tbody>${campaigns.map((campaign) => renderCampaignBlock(emailType, month, weekKey, campaign)).join("")}</tbody>
             </table>
           </div>
         </td>
@@ -699,14 +841,14 @@
     `;
   }
 
-  function renderCampaignBlock(emailType, month, row) {
-    const key = campaignKey(month, row.campaign);
+  function renderCampaignBlock(emailType, month, weekKey, row) {
+    const key = campaignKey(month, row.campaign, weekKey);
     const expanded = state.selectedType === emailType && state.selectedMonths.includes(month) && state.selectedCampaignKeys.includes(key);
     const sourceRows = dashboardRows();
-    const sites = expanded ? summarizeSites(sourceRows, emailType, month, row.campaign, "all") : [];
+    const sites = expanded ? summarizeSites(sourceRows, emailType, month, row.campaign, "all", weekKey) : [];
     return `
       <tr class="clickable level-campaign ${expanded ? "selected" : ""}" data-campaign-key="${escapeHtml(key)}">
-        <td><span class="toggle">${expanded ? "▾" : "▸"}</span><span class="primary">${escapeHtml(row.campaign)}</span>${copyButton("campaign", "复制", { type: emailType, month, campaign: row.campaign })}</td>
+        <td><span class="toggle">${expanded ? "▾" : "▸"}</span><span class="primary">${escapeHtml(row.campaign)}</span>${copyButton("campaign", "复制", { type: emailType, month, week: weekKey || "", campaign: row.campaign })}</td>
         ${summaryMetricCells(row.metrics, { exchangeRate: "混合" })}
       </tr>
       ${expanded ? renderSitePanel(sites, emailType, month, row.campaign) : ""}
@@ -797,8 +939,16 @@
 
   els.overviewMonth.addEventListener("change", () => {
     state.overviewMonth = els.overviewMonth.value;
+    state.overviewWeek = "all";
     render();
   });
+
+  if (els.overviewWeek) {
+    els.overviewWeek.addEventListener("change", () => {
+      state.overviewWeek = els.overviewWeek.value;
+      render();
+    });
+  }
 
   els.overviewSite.addEventListener("change", () => {
     state.overviewSite = els.overviewSite.value;
@@ -809,6 +959,16 @@
     state.overviewType = els.overviewType.value;
     render();
   });
+
+  if (els.periodMode) {
+    els.periodMode.addEventListener("change", () => {
+      state.periodMode = els.periodMode.value;
+      state.overviewWeek = "all";
+      state.selectedWeeks = [];
+      state.selectedCampaignKeys = [];
+      render();
+    });
+  }
 
   document.querySelectorAll("[data-market]").forEach((button) => {
     button.addEventListener("click", () => {

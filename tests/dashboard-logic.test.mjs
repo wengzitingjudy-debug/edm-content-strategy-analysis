@@ -8,6 +8,7 @@ import {
   summarizeCampaigns,
   summarizeMonths,
   summarizeSites,
+  summarizeWeeks,
 } from "../dashboard-logic.mjs";
 
 const raw = [
@@ -94,6 +95,8 @@ assert.equal(campaignBase("[场景]: 5.28_森林婚礼拍摄_US"), "[场景]: 5.
 const rows = normalizeRows(raw);
 assert.equal(rows.length, 5);
 assert.equal(rows[0].month, "2026-05");
+assert.equal(rows[0].weekKey, "2026-05-25");
+assert.equal(rows[0].weekLabel, "2026-05-25 ~ 2026-05-31");
 assert.equal(rows[0].site, "US");
 assert.equal(rows[1].site, "DE");
 assert.equal(rows[0].campaign, rows[1].campaign);
@@ -119,9 +122,18 @@ const months = summarizeMonths(rows, "场景", "all");
 assert.equal(months.length, 1);
 assert.equal(months[0].month, "2026-05");
 
+const weeks = summarizeWeeks(rows, "场景", "2026-05", "all");
+assert.equal(weeks.length, 1);
+assert.equal(weeks[0].weekKey, "2026-05-25");
+assert.equal(weeks[0].metrics.orders, 15);
+
 const campaigns = summarizeCampaigns(rows, "场景", "2026-05", "all");
 assert.equal(campaigns.length, 1);
 assert.equal(campaigns[0].campaign, "[场景]: 5.28_森林婚礼拍摄");
+
+const weeklyCampaigns = summarizeCampaigns(rows, "场景", "2026-05", "all", "2026-05-25");
+assert.equal(weeklyCampaigns.length, 1);
+assert.equal(weeklyCampaigns[0].metrics.orders, 15);
 
 const sites = summarizeSites(rows, "场景", "2026-05", "[场景]: 5.28_森林婚礼拍摄", "all");
 assert.deepEqual(sites.map((site) => site.site), ["US", "EU", "DE", "Other"]);

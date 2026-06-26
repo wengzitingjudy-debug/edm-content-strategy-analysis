@@ -138,7 +138,7 @@ button:hover { border-color: #99bce5; background: #f8fbff; }
 
 .overview-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 260px));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 220px));
   gap: 14px;
   padding: 4px 0 18px;
 }
@@ -244,6 +244,13 @@ tr.selected { background: #eaf4ff; }
   padding-right: 38px;
   background: #fbfdff;
   border-left: 4px solid #75a7dd;
+}
+
+.level-week td:first-child {
+  position: relative;
+  padding-right: 38px;
+  background: #f8fbff;
+  border-left: 4px solid #9dbfe8;
 }
 
 .level-campaign td:first-child {
