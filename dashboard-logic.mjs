@@ -2,14 +2,20 @@ export function cleanHeader(value) {
   return String(value ?? "").trim().replace("\ufeff", "").replace(/，/g, "");
 }
 
+export function canonicalHeader(value) {
+  return cleanHeader(value)
+    .toLowerCase()
+    .replace(/[：:，,。.\s_\-（）()【】\[\]{}]/g, "");
+}
+
 export function findField(row, candidates) {
   const keys = Object.keys(row || {});
-  const normalized = new Map(keys.map((key) => [cleanHeader(key).toLowerCase(), key]));
+  const normalized = new Map(keys.map((key) => [canonicalHeader(key), key]));
   for (const candidate of candidates) {
-    const key = normalized.get(cleanHeader(candidate).toLowerCase());
+    const key = normalized.get(canonicalHeader(candidate));
     if (key) return key;
   }
-  return keys.find((key) => candidates.some((candidate) => cleanHeader(key).toLowerCase().includes(cleanHeader(candidate).toLowerCase())));
+  return keys.find((key) => candidates.some((candidate) => canonicalHeader(key).includes(canonicalHeader(candidate))));
 }
 
 export function toNumber(value) {
@@ -95,10 +101,10 @@ export function normalizeRows(rawRows) {
   return rawRows.flatMap((raw) => {
     const typeField = findField(raw, ["type"]);
 
-    const dateField = findField(raw, ["发送时间", "send date", "date"]);
-    const contentField = findField(raw, ["邮件内容类型", "email type", "content type"]);
-    const sourceField = findField(raw, ["source_name", "campaign", "campaign name"]);
-    const companyField = findField(raw, ["company_name", "site", "站点", "国家"]);
+    const dateField = findField(raw, ["发送时间", "发送日期", "send date", "send time", "date"]);
+    const contentField = findField(raw, ["邮件内容类型", "内容类型", "email type", "content type", "strategy type"]);
+    const sourceField = findField(raw, ["source_name", "campaign", "campaign name", "邮件名称", "邮件活动名称"]);
+    const companyField = findField(raw, ["company_name", "site", "站点", "国家", "国家站点"]);
     const previewField = findField(raw, ["预览文本", "preview text", "preview_text", "preheader"]);
     const audienceField = findField(raw, ["include_fenqun_names", "发送用户群", "用户群", "fenqun"]);
     const excludedAudienceField = findField(raw, ["exclude_fenqun_names", "排除用户群", "排除人群", "exclude_fenqun"]);
@@ -129,10 +135,10 @@ export function normalizeRows(rawRows) {
       companyName: String(raw[companyField] || ""),
       audienceGroup: audienceField ? String(raw[audienceField] || "").trim() : "",
       excludedAudienceGroup: excludedAudienceField ? String(raw[excludedAudienceField] || "").trim() : "",
-      sent: get(["发送数", "sent"]),
-      delivered: get(["送达数", "delivered"]),
-      opens: get(["打开数", "opens"]),
-      clicks: get(["点击数", "clicks"]),
+      sent: get(["发送量", "发送数", "sent", "send count"]),
+      delivered: get(["送达数", "触达数", "delivered"]),
+      opens: get(["打开数", "打开人数", "opens"]),
+      clicks: get(["点击数", "点击人数", "clicks"]),
       orders: get(["Cartsee订单数", "订单数", "orders"]),
       revenue,
       revenueCny: round(revenue * exchangeRateForSite(site)),

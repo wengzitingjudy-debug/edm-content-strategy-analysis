@@ -35,14 +35,20 @@
     return String(value == null ? "" : value).trim().replace("\ufeff", "").replace(/，/g, "");
   }
 
+  function canonicalHeader(value) {
+    return cleanHeader(value)
+      .toLowerCase()
+      .replace(/[：:，,。.\s_\-（）()【】\[\]{}]/g, "");
+  }
+
   function findField(row, candidates) {
     const keys = Object.keys(row || {});
-    const normalized = new Map(keys.map((key) => [cleanHeader(key).toLowerCase(), key]));
+    const normalized = new Map(keys.map((key) => [canonicalHeader(key), key]));
     for (const candidate of candidates) {
-      const key = normalized.get(cleanHeader(candidate).toLowerCase());
+      const key = normalized.get(canonicalHeader(candidate));
       if (key) return key;
     }
-    return keys.find((key) => candidates.some((candidate) => cleanHeader(key).toLowerCase().includes(cleanHeader(candidate).toLowerCase())));
+    return keys.find((key) => candidates.some((candidate) => canonicalHeader(key).includes(canonicalHeader(candidate))));
   }
 
   function toNumber(value) {
@@ -132,10 +138,10 @@
     return rawRows.flatMap((raw) => {
       const typeField = findField(raw, ["type"]);
 
-      const dateField = findField(raw, ["发送时间", "send date", "date"]);
-      const contentField = findField(raw, ["邮件内容类型", "email type", "content type"]);
-      const sourceField = findField(raw, ["source_name", "campaign", "campaign name"]);
-      const companyField = findField(raw, ["company_name", "site", "站点", "国家"]);
+      const dateField = findField(raw, ["发送时间", "发送日期", "send date", "send time", "date"]);
+      const contentField = findField(raw, ["邮件内容类型", "内容类型", "email type", "content type", "strategy type"]);
+      const sourceField = findField(raw, ["source_name", "campaign", "campaign name", "邮件名称", "邮件活动名称"]);
+      const companyField = findField(raw, ["company_name", "site", "站点", "国家", "国家站点"]);
       const previewField = findField(raw, ["预览文本", "preview text", "preview_text", "preheader"]);
       const audienceField = findField(raw, ["include_fenqun_names", "发送用户群", "用户群", "fenqun"]);
       const excludedAudienceField = findField(raw, ["exclude_fenqun_names", "排除用户群", "排除人群", "exclude_fenqun"]);
@@ -166,10 +172,10 @@
         companyName: String(raw[companyField] || ""),
         audienceGroup: audienceField ? String(raw[audienceField] || "").trim() : "",
         excludedAudienceGroup: excludedAudienceField ? String(raw[excludedAudienceField] || "").trim() : "",
-        sent: get(["发送数", "sent"]),
-        delivered: get(["送达数", "delivered"]),
-        opens: get(["打开数", "opens"]),
-        clicks: get(["点击数", "clicks"]),
+        sent: get(["发送量", "发送数", "sent", "send count"]),
+        delivered: get(["送达数", "触达数", "delivered"]),
+        opens: get(["打开数", "打开人数", "opens"]),
+        clicks: get(["点击数", "点击人数", "clicks"]),
         orders: get(["Cartsee订单数", "订单数", "orders"]),
         revenue,
         revenueCny: round(revenue * exchangeRateForSite(site)),
@@ -483,7 +489,9 @@
     state.overviewSite = "all";
     state.overviewType = "all";
     if (!state.rows.length) {
-      setStatus("没有识别到可用 Campaign 数据。请检查字段名是否包含发送时间、邮件内容类型、source_name、company_name。", true);
+      const headers = Object.keys(rawRows.find((row) => Object.keys(row || {}).length) || {}).slice(0, 12);
+      const suffix = headers.length ? ` 当前读取到的表头：${headers.join("、")}` : " 当前没有读取到有效表头。";
+      setStatus(`没有识别到可用 Campaign 数据。请检查字段名是否包含发送时间、邮件内容类型、source_name、company_name。${suffix}`, true);
     } else {
       const months = unique(state.rows.map((row) => row.month)).sort();
       setStatus(`已载入 ${sourceName}：${state.rows.length} 行 Campaign 数据，覆盖 ${months.join(", ")}。`);
@@ -895,7 +903,35 @@
 
   function workbookToRows(workbook, sheetName) {
     const sheet = workbook.Sheets[sheetName];
-    return XLSX.utils.sheet_to_json(sheet, { defval: "", cellDates: true });
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", cellDates: true, blankrows: false });
+    const headerIndex = findHeaderRowIndex(matrix);
+    if (headerIndex < 0) return XLSX.utils.sheet_to_json(sheet, { defval: "", cellDates: true });
+    const headers = matrix[headerIndex].map((value, index) => cleanHeader(value) || `Column ${index + 1}`);
+    return matrix.slice(headerIndex + 1)
+      .filter((row) => row.some((value) => value !== null && value !== undefined && String(value).trim() !== ""))
+      .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])));
+  }
+
+  function findHeaderRowIndex(matrix) {
+    const requiredGroups = [
+      ["发送时间", "发送日期", "send date", "send time", "date"],
+      ["邮件内容类型", "内容类型", "email type", "content type", "strategy type"],
+      ["source_name", "campaign", "campaign name", "邮件名称", "邮件活动名称"],
+      ["company_name", "site", "站点", "国家", "国家站点"],
+    ];
+    let bestIndex = -1;
+    let bestScore = 0;
+    matrix.slice(0, 20).forEach((row, index) => {
+      const headers = row.map(canonicalHeader).filter(Boolean);
+      const score = requiredGroups.reduce((total, group) => (
+        total + (group.some((candidate) => headers.includes(canonicalHeader(candidate))) ? 1 : 0)
+      ), 0);
+      if (score > bestScore) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    });
+    return bestScore >= 3 ? bestIndex : -1;
   }
 
   async function handleFile(file) {

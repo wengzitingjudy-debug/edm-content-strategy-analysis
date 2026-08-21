@@ -144,4 +144,21 @@ assert.equal(sites[1].excludedAudienceGroup, "EU 已购买用户");
 assert.equal(sites[3].audienceGroup, "-");
 assert.equal(sites[3].excludedAudienceGroup, "-");
 
+const variantRows = normalizeRows([{
+  "发送日期：": "2026-06-24",
+  "内容 类型": "促销",
+  "Campaign Name": "[SALE]: 6.16_6月活动Last Call_AU",
+  "国家站点": "SmallRig-AU",
+  "发送量": 14079,
+  "打开人数": 5278,
+  "点击人数": 151,
+  "Cartsee订单数": 7,
+  "Cartsee销售额": 1128.92,
+}]);
+assert.equal(variantRows.length, 1);
+assert.equal(variantRows[0].month, "2026-06");
+assert.equal(variantRows[0].site, "AU");
+assert.equal(variantRows[0].sent, 14079);
+assert.equal(variantRows[0].orders, 7);
+
 console.log("dashboard logic tests passed");
