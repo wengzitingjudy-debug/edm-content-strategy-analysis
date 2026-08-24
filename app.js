@@ -9,7 +9,7 @@
     periodMode: "month",
     overviewMonth: "all",
     overviewWeek: "all",
-    overviewSite: "all",
+    overviewSites: [],
     overviewType: "all",
     workbook: null,
     fileName: null,
@@ -24,6 +24,9 @@
     overviewWeekLabel: document.getElementById("overviewWeekLabel"),
     overviewWeek: document.getElementById("overviewWeek"),
     overviewSite: document.getElementById("overviewSite"),
+    overviewSiteButton: document.getElementById("overviewSiteButton"),
+    overviewSiteText: document.getElementById("overviewSiteText"),
+    overviewSiteMenu: document.getElementById("overviewSiteMenu"),
     overviewType: document.getElementById("overviewType"),
     periodMode: document.getElementById("periodMode"),
     overviewCards: document.getElementById("overviewCards"),
@@ -238,7 +241,7 @@
     return filterRowsByMarket(state.rows, state.market).filter((row) =>
       (state.overviewMonth === "all" || row.month === state.overviewMonth) &&
       (state.overviewWeek === "all" || row.weekKey === state.overviewWeek) &&
-      (state.overviewSite === "all" || row.site === state.overviewSite) &&
+      (!state.overviewSites.length || state.overviewSites.includes(row.site)) &&
       (state.overviewType === "all" || row.emailType === state.overviewType)
     );
   }
@@ -486,7 +489,7 @@
     state.selectedCampaignKeys = [];
     state.overviewMonth = "all";
     state.overviewWeek = "all";
-    state.overviewSite = "all";
+    state.overviewSites = [];
     state.overviewType = "all";
     if (!state.rows.length) {
       const headers = Object.keys(rawRows.find((row) => Object.keys(row || {}).length) || {}).slice(0, 12);
@@ -575,6 +578,33 @@
     `).join("");
   }
 
+  function selectedSiteLabel() {
+    if (!state.overviewSites.length) return "全部站点";
+    if (state.overviewSites.length === 1) return state.overviewSites[0];
+    if (state.overviewSites.length <= 3) return state.overviewSites.join(" / ");
+    return `${state.overviewSites[0]} + ${state.overviewSites.length - 1}`;
+  }
+
+  function renderSiteMultiSelect(sites, disabled) {
+    if (!els.overviewSiteButton || !els.overviewSiteText || !els.overviewSiteMenu) return;
+    els.overviewSiteText.textContent = selectedSiteLabel();
+    els.overviewSiteButton.disabled = disabled;
+    els.overviewSiteButton.setAttribute("aria-expanded", "false");
+    els.overviewSiteMenu.hidden = true;
+    els.overviewSiteMenu.innerHTML = `
+      <label class="multi-option">
+        <input type="checkbox" value="all" ${state.overviewSites.length ? "" : "checked"} ${disabled ? "disabled" : ""} />
+        <span>全部站点</span>
+      </label>
+      ${sites.map((site) => `
+        <label class="multi-option">
+          <input type="checkbox" value="${escapeHtml(site)}" ${state.overviewSites.includes(site) ? "checked" : ""} ${disabled ? "disabled" : ""} />
+          <span>${escapeHtml(site)}</span>
+        </label>
+      `).join("")}
+    `;
+  }
+
   function renderOverview() {
     const marketRows = filterRowsByMarket(state.rows, state.market);
     const months = unique(marketRows.map((row) => row.month)).sort();
@@ -582,7 +612,7 @@
     const types = unique(marketRows.map((row) => row.emailType)).sort((a, b) => a.localeCompare(b));
 
     if (!months.includes(state.overviewMonth)) state.overviewMonth = "all";
-    if (!sites.includes(state.overviewSite)) state.overviewSite = "all";
+    state.overviewSites = state.overviewSites.filter((site) => sites.includes(site));
     if (!types.includes(state.overviewType)) state.overviewType = "all";
 
     const shouldShowWeek = state.periodMode === "week" && state.overviewMonth !== "all";
@@ -600,14 +630,13 @@
       els.overviewWeekLabel.hidden = !shouldShowWeek;
       els.overviewWeek.innerHTML = labeledSelectOptions(weekRows, state.overviewWeek, "全部周度");
     }
-    els.overviewSite.innerHTML = selectOptions(sites, state.overviewSite, "全部站点");
     els.overviewType.innerHTML = selectOptions(types, state.overviewType, "全部内容类型");
     if (els.periodMode) els.periodMode.value = state.periodMode;
 
     const disabled = !marketRows.length;
     els.overviewMonth.disabled = disabled;
     if (els.overviewWeek) els.overviewWeek.disabled = disabled || !shouldShowWeek;
-    els.overviewSite.disabled = disabled;
+    renderSiteMultiSelect(sites, disabled);
     els.overviewType.disabled = disabled;
     if (els.periodMode) els.periodMode.disabled = disabled;
 
@@ -986,10 +1015,36 @@
     });
   }
 
-  els.overviewSite.addEventListener("change", () => {
-    state.overviewSite = els.overviewSite.value;
-    render();
-  });
+  if (els.overviewSiteButton && els.overviewSiteMenu) {
+    els.overviewSiteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (els.overviewSiteButton.disabled) return;
+      const nextOpen = els.overviewSiteMenu.hidden;
+      els.overviewSiteMenu.hidden = !nextOpen;
+      els.overviewSiteButton.setAttribute("aria-expanded", String(nextOpen));
+    });
+
+    els.overviewSiteMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    els.overviewSiteMenu.addEventListener("change", (event) => {
+      const input = event.target.closest("input[type='checkbox']");
+      if (!input) return;
+      if (input.value === "all") {
+        state.overviewSites = [];
+      } else if (input.checked) {
+        state.overviewSites = [...new Set([...state.overviewSites, input.value])].sort((a, b) => siteSortValue(a) - siteSortValue(b) || a.localeCompare(b));
+      } else {
+        state.overviewSites = state.overviewSites.filter((site) => site !== input.value);
+      }
+      render();
+      if (els.overviewSiteMenu) {
+        els.overviewSiteMenu.hidden = false;
+        els.overviewSiteButton.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
 
   els.overviewType.addEventListener("change", () => {
     state.overviewType = els.overviewType.value;
@@ -1011,6 +1066,18 @@
       state.market = button.dataset.market;
       render();
     });
+  });
+
+  document.addEventListener("click", () => {
+    if (!els.overviewSiteMenu || !els.overviewSiteButton) return;
+    els.overviewSiteMenu.hidden = true;
+    els.overviewSiteButton.setAttribute("aria-expanded", "false");
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !els.overviewSiteMenu || !els.overviewSiteButton) return;
+    els.overviewSiteMenu.hidden = true;
+    els.overviewSiteButton.setAttribute("aria-expanded", "false");
   });
 
   render();
