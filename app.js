@@ -374,12 +374,16 @@
     return `${((value || 0) * 100).toFixed(1)}%`;
   }
 
+  function fmtAov(metrics) {
+    return metrics.orders ? metrics.aov.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  }
+
   function fmtSmallRate(value) {
     return `${((value || 0) * 100).toFixed(3)}%`;
   }
 
   function metricExportHeaders() {
-    return ["发送量", "触达率", "打开人数", "打开率", "点击人数", "点击率", "CTOR", "订单数", "原币种销售额", "汇率", "人民币销售额", "转化率", "退订率"];
+    return ["发送量", "触达率", "打开人数", "打开率", "点击人数", "点击率", "CTOR", "订单数", "原币种销售额", "客单价", "汇率", "人民币销售额", "转化率", "退订率"];
   }
 
   function metricExportValues(metrics, exchangeRate) {
@@ -393,6 +397,7 @@
       fmtRate(metrics.ctor),
       fmtNum(metrics.orders),
       fmtMoney(metrics.revenue),
+      fmtAov(metrics),
       exchangeRate || "混合",
       fmtMoney(metrics.revenueCny),
       fmtRate(metrics.orderCvr),
@@ -514,6 +519,7 @@
       <td class="num">${fmtRate(metrics.ctor)}</td>
       <td class="num">${fmtNum(metrics.orders)}</td>
       <td class="num">${fmtMoney(metrics.revenue)}</td>
+      <td class="num">${fmtAov(metrics)}</td>
       <td class="num">${escapeHtml(opts.exchangeRate || "混合")}</td>
       <td class="num">${fmtMoney(metrics.revenueCny)}</td>
       <td class="num">${fmtRate(metrics.orderCvr)}</td>
@@ -533,6 +539,7 @@
       <td class="num">${fmtRate(metrics.ctor)}</td>
       <td class="num">${fmtNum(metrics.orders)}</td>
       <td class="num">${fmtMoney(metrics.revenue)}</td>
+      <td class="num">${fmtAov(metrics)}</td>
       <td class="num">${escapeHtml(opts.exchangeRate || "混合")}</td>
       <td class="num">${fmtMoney(metrics.revenueCny)}</td>
       <td class="num">${fmtRate(metrics.orderCvr)}</td>
@@ -546,7 +553,7 @@
         <th>${firstColumnLabel}</th>
         <th class="num">发送量</th><th class="num">触达率</th><th class="num">打开人数</th><th class="num">打开率</th>
         <th class="num">点击人数</th><th class="num">点击率</th><th class="num">CTOR</th><th class="num">订单数</th>
-        <th class="num">原币种销售额</th><th class="num">汇率</th><th class="num">人民币销售额</th>
+        <th class="num">原币种销售额</th><th class="num" title="原币种销售额 ÷ 订单数；跨币种汇总请筛选具体站点查看">客单价</th><th class="num">汇率</th><th class="num">人民币销售额</th>
         <th class="num">转化率</th><th class="num">退订率</th>
       </tr>
     `;
@@ -558,7 +565,7 @@
         <th>国家站点</th><th>发送用户群</th>
         <th class="num">发送量</th><th class="num">触达率</th><th class="num">打开人数</th><th class="num">打开率</th>
         <th class="num">点击人数</th><th class="num">点击率</th><th class="num">CTOR</th><th class="num">订单数</th>
-        <th class="num">原币种销售额</th><th class="num">汇率</th><th class="num">人民币销售额</th>
+        <th class="num">原币种销售额</th><th class="num" title="原币种销售额 ÷ 订单数">客单价</th><th class="num">汇率</th><th class="num">人民币销售额</th>
         <th class="num">转化率</th><th class="num">退订率</th><th>排除用户群</th>
       </tr>
     `;
@@ -865,7 +872,7 @@
   function renderCampaignPanel(emailType, month, weekKey, campaigns) {
     return `
       <tr class="nested-row">
-        <td colspan="14">
+        <td colspan="15">
           <div class="nested-panel">
             <span class="section-pill">邮件表现</span>
             <table class="nested-table campaign-table">
@@ -895,7 +902,7 @@
   function renderSitePanel(sites, emailType, month, campaign) {
     return `
       <tr class="nested-row site-nested-row">
-        <td colspan="14">
+        <td colspan="15">
           <div class="site-panel">
             <span class="section-pill site-pill">国家站点表现</span>
           <table class="nested-table site-table">
